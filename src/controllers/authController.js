@@ -7,7 +7,7 @@ const User = require('../models/User');
 const emailRegex = /^[a-zA-Z0-9._%+-]+@vitapstudent\.ac\.in$/;
 
 // ===========================================
-// REGISTER FUNCTION (FIXED)
+// REGISTER
 // ===========================================
 exports.register = async (req, res) => {
   try {
@@ -17,24 +17,17 @@ exports.register = async (req, res) => {
     }
 
     let user = await User.findOne({ email });
-    if (user) {
-      return res.status(400).json({ msg: 'User already exists' });
-    }
+    if (user) return res.status(400).json({ msg: 'User already exists' });
 
-    // ✅ Just create user, do not hash manually
     user = new User({ name, email, password });
-    await user.save(); // pre-save hook in User model will hash password
+    await user.save();
 
     const payload = { user: { id: user.id, email: user.email } };
     jwt.sign(payload, process.env.JWT_SECRET, { expiresIn: '7d' }, (err, token) => {
       if (err) throw err;
       res.json({
         token,
-        user: {
-          _id: user._id, // ✅ send _id for frontend comparison
-          name: user.name,
-          email: user.email
-        }
+        user: { _id: user._id, name: user.name, email: user.email }
       });
     });
   } catch (err) {
@@ -44,7 +37,7 @@ exports.register = async (req, res) => {
 };
 
 // ===========================================
-// LOGIN FUNCTION (FIXED)
+// LOGIN
 // ===========================================
 exports.login = async (req, res) => {
   try {
@@ -60,11 +53,7 @@ exports.login = async (req, res) => {
       if (err) throw err;
       res.json({
         token,
-        user: {
-          _id: user._id, // ✅ send _id for frontend comparison
-          name: user.name,
-          email: user.email
-        }
+        user: { _id: user._id, name: user.name, email: user.email }
       });
     });
   } catch (err) {
@@ -90,7 +79,9 @@ exports.forgotPassword = async (req, res) => {
     const resetURL = `${process.env.FRONTEND_URL}/reset-password/${resetToken}`;
 
     const transporter = nodemailer.createTransport({
-      service: 'gmail',
+      host: process.env.MAIL_HOST,
+      port: process.env.MAIL_PORT,
+      secure: process.env.MAIL_PORT == 465, // SSL for 465, false for 587
       auth: { user: process.env.SMTP_USER, pass: process.env.SMTP_PASS }
     });
 
@@ -131,7 +122,6 @@ exports.resetPassword = async (req, res) => {
 
     if (!user) return res.status(400).json({ msg: 'Invalid or expired token' });
 
-    // ✅ Save new password, pre-save hook will hash automatically
     user.password = password;
     user.resetPasswordToken = undefined;
     user.resetPasswordExpires = undefined;

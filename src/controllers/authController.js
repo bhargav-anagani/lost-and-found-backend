@@ -1,11 +1,28 @@
 const bcrypt = require('bcrypt');
 const jwt = require('jsonwebtoken');
 const crypto = require('crypto');
-const { Resend } = require('resend');
+const nodemailer = require('nodemailer');
 const User = require('../models/User');
 
-const resend = new Resend(process.env.RESEND_API_KEY);
 const emailRegex = /^[a-zA-Z0-9._%+-]+@vitapstudent\.ac\.in$/;
+
+// ===========================
+// Nodemailer transporter
+// ===========================
+const transporter = nodemailer.createTransport({
+  host: process.env.MAIL_HOST,
+  port: Number(process.env.MAIL_PORT),
+  secure: false, // true for 465, false for 587
+  auth: {
+    user: process.env.SMTP_USER,
+    pass: process.env.SMTP_PASS,
+  },
+});
+
+transporter.verify((err, success) => {
+  if (err) console.error('SMTP connection error:', err);
+  else console.log('SMTP server is ready');
+});
 
 // ===========================================
 // REGISTER
@@ -29,7 +46,7 @@ exports.register = async (req, res) => {
       if (err) throw err;
       res.json({
         token,
-        user: { _id: user._id, name: user.name, email: user.email }
+        user: { _id: user._id, name: user.name, email: user.email },
       });
     });
   } catch (err) {
@@ -55,7 +72,7 @@ exports.login = async (req, res) => {
       if (err) throw err;
       res.json({
         token,
-        user: { _id: user._id, name: user.name, email: user.email }
+        user: { _id: user._id, name: user.name, email: user.email },
       });
     });
   } catch (err) {
@@ -65,7 +82,7 @@ exports.login = async (req, res) => {
 };
 
 // ===========================================
-// FORGOT PASSWORD
+// FORGOT PASSWORD (Nodemailer)
 // ===========================================
 exports.forgotPassword = async (req, res) => {
   try {
@@ -78,10 +95,10 @@ exports.forgotPassword = async (req, res) => {
     user.resetPasswordExpires = Date.now() + 15 * 60 * 1000; // 15 mins
     await user.save();
 
-    const resetURL = `${process.env.CLIENT_URL}/reset-password/${resetToken}`;
+    const resetURL = `${process.env.FRONTEND_URL}/reset-password/${resetToken}`;
 
-    await resend.emails.send({
-      from: process.env.EMAIL_FROM,
+    const mailOptions = {
+      from: process.env.SMTP_USER,
       to: user.email,
       subject: 'Password Reset Request',
       html: `
@@ -97,8 +114,9 @@ exports.forgotPassword = async (req, res) => {
           <p>If you didn't request this, please ignore this email.</p>
         </div>
       `,
-    });
+    };
 
+    await transporter.sendMail(mailOptions);
     res.status(200).json({ msg: 'Password reset link sent to email' });
   } catch (err) {
     console.error('Forgot password error:', err);
@@ -117,7 +135,7 @@ exports.resetPassword = async (req, res) => {
     const hashedToken = crypto.createHash('sha256').update(token).digest('hex');
     const user = await User.findOne({
       resetPasswordToken: hashedToken,
-      resetPasswordExpires: { $gt: Date.now() }
+      resetPasswordExpires: { $gt: Date.now() },
     });
 
     if (!user) return res.status(400).json({ msg: 'Invalid or expired token' });

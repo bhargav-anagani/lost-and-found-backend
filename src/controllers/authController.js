@@ -1,9 +1,10 @@
 const bcrypt = require('bcrypt');
 const jwt = require('jsonwebtoken');
 const crypto = require('crypto');
-const nodemailer = require('nodemailer');
+const { Resend } = require('resend');
 const User = require('../models/User');
 
+const resend = new Resend(process.env.RESEND_API_KEY);
 const emailRegex = /^[a-zA-Z0-9._%+-]+@vitapstudent\.ac\.in$/;
 
 // ===========================================
@@ -63,7 +64,7 @@ exports.login = async (req, res) => {
 };
 
 // ===========================================
-// FORGOT PASSWORD
+// FORGOT PASSWORD (using Resend)
 // ===========================================
 exports.forgotPassword = async (req, res) => {
   try {
@@ -71,38 +72,39 @@ exports.forgotPassword = async (req, res) => {
     const user = await User.findOne({ email });
     if (!user) return res.status(404).json({ msg: 'User not found' });
 
+    // Generate reset token and expiry
     const resetToken = crypto.randomBytes(32).toString('hex');
     user.resetPasswordToken = crypto.createHash('sha256').update(resetToken).digest('hex');
     user.resetPasswordExpires = Date.now() + 15 * 60 * 1000; // 15 minutes
     await user.save();
 
-    const resetURL = `${process.env.FRONTEND_URL}/reset-password/${resetToken}`;
+    // Frontend reset password URL
+    const resetURL = `${process.env.CLIENT_URL}/reset-password/${resetToken}`;
 
-    const transporter = nodemailer.createTransport({
-      host: process.env.MAIL_HOST,
-      port: process.env.MAIL_PORT,
-      secure: process.env.MAIL_PORT == 465, // SSL for 465, false for 587
-      auth: { user: process.env.SMTP_USER, pass: process.env.SMTP_PASS }
-    });
-
-    const mailOptions = {
-      from: `"Lost & Found Support" <${process.env.SMTP_USER}>`,
+    // Send email using Resend
+    await resend.emails.send({
+      from: process.env.EMAIL_FROM,
       to: user.email,
       subject: 'Password Reset Request',
       html: `
-        <p>Hello ${user.name},</p>
-        <p>You requested a password reset for your Lost & Found account.</p>
-        <p>Click the link below to reset your password (valid for 15 minutes):</p>
-        <a href="${resetURL}">${resetURL}</a>
-        <p>If you didn’t request this, please ignore this email.</p>
-      `
-    };
+        <div style="font-family:Arial, sans-serif; line-height:1.5;">
+          <h2>Reset Your Password</h2>
+          <p>Hello ${user.name},</p>
+          <p>You requested a password reset for your Lost & Found account.</p>
+          <p>Click the link below to reset your password (valid for 15 minutes):</p>
+          <a href="${resetURL}" 
+             style="display:inline-block; padding:10px 15px; background-color:#007BFF; color:white; text-decoration:none; border-radius:5px;">
+             Reset Password
+          </a>
+          <p>If you didn't request this, please ignore this email.</p>
+        </div>
+      `,
+    });
 
-    await transporter.sendMail(mailOptions);
     res.status(200).json({ msg: 'Password reset link sent to email' });
   } catch (err) {
-    console.error(err.message);
-    res.status(500).json({ msg: 'Error sending reset link' });
+    console.error('Error sending reset email:', err);
+    res.status(500).json({ msg: 'Error sending reset link', error: err.message });
   }
 };
 
